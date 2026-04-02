@@ -595,3 +595,89 @@ pub fn orchestrate_chat_dispatch(
 3. **Terminal Member Store**: Manages a serial dispatch queue per member to avoid command interleaving
 4. **Backend**: `orchestrate_chat_dispatch` ensures sessions exist and dispatches messages
 5. **Terminal Engine**: Handles actual session management and command execution
+
+## Q4: How many prompt settings are in the project and when are they injected into the agent?
+
+### Answer:
+
+#### 1. Number of Prompt Settings
+
+There is **1 prompt setting** defined in the project.
+
+The prompt type is defined in:
+
+- `src-tauri/src/terminal_engine/default_members/onboarding.rs:3`:
+  ```rust
+  pub(crate) const PROMPT_TYPE_ONBOARDING: &str = "onboarding";
+  ```
+
+And the corresponding enum variant:
+
+- `src-tauri/src/terminal_engine/default_members/onboarding.rs:6-8`:
+  ```rust
+  #[derive(Clone, Copy, Debug)]
+  pub(crate) enum PromptType {
+      Onboarding,
+  }
+  ```
+
+#### 2. When Prompts Are Injected
+
+Prompts are injected during the **"post-ready" phase** of a terminal session. Here is the detailed workflow:
+
+##### Step 1: Prompt Definition & Generation
+
+The prompt text is generated in `src-tauri/src/terminal_engine/default_members/onboarding.rs:10-30`:
+
+```rust
+pub(crate) fn generate_prompt(
+    prompt_type: PromptType,
+    terminal_id: &str,
+    language: Option<&str>,
+) -> String {
+    let language = language.unwrap_or("zh");
+    let is_english = language.to_lowercase().starts_with("en");
+
+    match prompt_type {
+        PromptType::Onboarding => {
+            if is_english {
+                format!(
+                    "{}, this is your name. You are working with the team to solve problems.",
+                    terminal_id
+                )
+            } else {
+                format!("{}，这是你的名字，现在正在和团队解决问题", terminal_id)
+            }
+        }
+    }
+}
+```
+
+##### Step 2: Post-Ready Plan Definition
+
+All default AI members include this prompt in their post-ready plan, defined in:
+
+- `src-tauri/src/terminal_engine/default_members/ai_shared.rs` (shared configuration used by:
+  - `gemini.rs`
+  - `codex.rs`
+  - `claude.rs`
+  - `opencode.rs`
+  - `qwen.rs`
+
+##### Step 3: Injection Execution
+
+The injection happens in `src-tauri/src/terminal_engine/session/post_ready.rs`:
+
+1. **Starting the process** (lines 20‑65): `maybe_start_post_ready()` queues the introduction step
+2. **Processing the step** (lines 67‑354): `maybe_step_post_ready()` processes queued steps; when it encounters `PostReadyAction::Introduction` (lines 136‑172), it:
+   - Gets the language setting
+   - Gets the member ID
+   - Calls `generate_prompt()`
+   - Sends it via `send_post_ready_input()`
+
+##### Timing Summary:
+
+- After the terminal session is created
+- After the shell is ready
+- After the output is stable
+- As part of the "post‑ready" initialization steps
